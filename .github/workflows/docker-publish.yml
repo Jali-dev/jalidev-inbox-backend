@@ -48,6 +48,6 @@ jobs:
       - name: Trigger Coolify redeploy
         run: |
           curl -s -X POST \
-            "https://coolify.jalidev.online/api/v1/deploy?uuid=xs800808osc4oo444w000skc&force=false" \
+            "https://coolify.jalidev.online/api/v1/deploy?uuid=qcgo4c0c00c8kggwsg0k08c0&force=false" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
             -H "Accept: application/json"
