@@ -152,7 +152,11 @@ async def n8n_ai_reply(
     conversation = conv_data["conversation"]
     contact = conv_data["contact"]
     channel = payload.channel or conversation.get("channel", "telegram")
-    workspace_id = payload.workspace_id or await supabase_service.resolve_workspace_id_for_channel(channel)
+    workspace_id = (
+        payload.workspace_id
+        or await supabase_service.resolve_workspace_id_for_conversation(payload.conversation_id)
+        or await supabase_service.resolve_workspace_id_for_channel(channel)
+    )
     credit_cost = max(payload.credit_cost or supabase_service.DEFAULT_INBOX_AI_CREDIT_COST, 0)
 
     if not workspace_id:

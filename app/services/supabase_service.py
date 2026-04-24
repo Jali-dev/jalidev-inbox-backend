@@ -128,6 +128,50 @@ async def get_conversation_with_contact(
     return {"conversation": row, "contact": contact or {}}
 
 
+async def resolve_workspace_id_for_conversation(conversation_id: str) -> str | None:
+    """
+    Resolve workspace ownership from the conversation contact identity.
+    This matches the inbox-lite logic used in the Next.js app.
+    """
+    conv_data = await get_conversation_with_contact(conversation_id)
+    if not conv_data:
+        return None
+
+    contact = conv_data["contact"] or {}
+    external_id = contact.get("external_id")
+    phone = contact.get("phone")
+
+    client = _get_client()
+
+    if external_id:
+        identity_resp = (
+            client.table("client_channel_identities")
+            .select("workspace_id")
+            .eq("sender_key", str(external_id))
+            .limit(1)
+            .execute()
+        )
+        if identity_resp.data:
+            workspace_id = identity_resp.data[0].get("workspace_id")
+            if workspace_id:
+                return str(workspace_id)
+
+    if phone:
+        client_resp = (
+            client.table("clients")
+            .select("workspace_id")
+            .eq("phone", str(phone))
+            .limit(1)
+            .execute()
+        )
+        if client_resp.data:
+            workspace_id = client_resp.data[0].get("workspace_id")
+            if workspace_id:
+                return str(workspace_id)
+
+    return None
+
+
 async def resolve_workspace_id_for_channel(channel: str) -> str | None:
     """
     Resolve the workspace that owns the active channel.
