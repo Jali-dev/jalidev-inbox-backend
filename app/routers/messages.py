@@ -56,11 +56,15 @@ async def _send_outbound(
     """
     if channel == "telegram":
         # external_chat_id stored on conversation, or fall back to contact external_id
-        chat_id = conversation.get("external_chat_id") or contact.get("external_id", "").replace("tg:", "")
+        fallback_external_id = str(contact.get("external_id", "") or "")
+        chat_id = conversation.get("external_chat_id")
+        if not chat_id and fallback_external_id.startswith("tg:"):
+            chat_id = fallback_external_id.split(":")[-1]
         if not chat_id:
             logger.error(f"[send] No telegram chat_id for conversation {conversation['id']}")
             return False
-        return await telegram_service.send_telegram_message(chat_id=chat_id, text=text)
+        bot_token = await supabase_service.resolve_telegram_bot_token_for_conversation(str(conversation["id"]))
+        return await telegram_service.send_telegram_message(chat_id=chat_id, text=text, bot_token=bot_token)
 
     elif channel == "whatsapp":
         # Meta / WhatsApp Cloud API — phone number stored in contact.phone

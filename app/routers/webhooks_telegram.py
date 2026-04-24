@@ -66,23 +66,23 @@ def _build_contact_name(user: TelegramUser) -> str:
     return name or user.username or f"tg:{user.id}"
 
 
-def _tg_external_id(user: TelegramUser) -> str:
-    """Canonical external_id for Telegram contacts: tg:{user_id}"""
-    return f"tg:{user.id}"
+def _tg_external_id(user: TelegramUser, bot_id: str) -> str:
+    """Canonical external_id for Telegram contacts: tg:{bot_id}:{user_id}"""
+    return f"tg:{bot_id}:{user.id}"
 
 
 # ─────────────────────────────────────────────
 # Background task: persist + trigger AI
 # ─────────────────────────────────────────────
 
-async def _handle_tg_message(update: TelegramUpdate) -> None:
+async def _handle_tg_message(update: TelegramUpdate, bot_id: str) -> None:
     msg = update.message
     if not msg or not msg.text or not msg.from_ or msg.from_.is_bot:
         return
 
     user = msg.from_
     chat_id = str(msg.chat.id)
-    external_id = _tg_external_id(user)
+    external_id = _tg_external_id(user, bot_id)
     contact_name = _build_contact_name(user)
     text = msg.text.strip()
 
@@ -128,11 +128,12 @@ async def _handle_tg_message(update: TelegramUpdate) -> None:
 # ─────────────────────────────────────────────
 
 @router.post(
-    "/telegram",
+    "/telegram/{bot_id}",
     status_code=status.HTTP_200_OK,
     summary="Telegram Bot webhook receiver",
 )
 async def receive_telegram_update(
+    bot_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
@@ -156,9 +157,23 @@ async def receive_telegram_update(
     # Only handle private text messages for now
     from_ = update.message.from_ if update.message else None
     if update.message and update.message.text and from_ and not from_.is_bot:
-        background_tasks.add_task(_handle_tg_message, update)
+        background_tasks.add_task(_handle_tg_message, update, bot_id)
 
     return {"ok": True}
+
+
+@router.post(
+    "/telegram",
+    status_code=status.HTTP_200_OK,
+    summary="Telegram Bot webhook receiver (legacy single-bot route)",
+)
+async def receive_telegram_update_legacy(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    token = (settings.TELEGRAM_BOT_TOKEN or "").strip()
+    bot_id = token.split(":", 1)[0].strip() if ":" in token else "global"
+    return await receive_telegram_update(bot_id=bot_id, request=request, background_tasks=background_tasks)
 
 
 @router.get(

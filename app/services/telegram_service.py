@@ -13,16 +13,25 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
 
-def _telegram_url(method: str) -> str:
-    return TELEGRAM_API_BASE.format(token=settings.TELEGRAM_BOT_TOKEN, method=method)
+def _resolve_token(bot_token: str | None = None) -> str:
+    return (bot_token or settings.TELEGRAM_BOT_TOKEN or "").strip()
 
 
-async def send_telegram_message(chat_id: str | int, text: str) -> bool:
+def _telegram_url(method: str, bot_token: str | None = None) -> str:
+    return TELEGRAM_API_BASE.format(token=_resolve_token(bot_token), method=method)
+
+
+async def send_telegram_message(chat_id: str | int, text: str, bot_token: str | None = None) -> bool:
     """
     Send a plain text message to a Telegram chat.
     Returns True on success, False on failure (non-raising).
     """
-    url = _telegram_url("sendMessage")
+    token = _resolve_token(bot_token)
+    if not token:
+        logger.error("[telegram] Missing bot token for sendMessage")
+        return False
+
+    url = _telegram_url("sendMessage", token)
     payload = {
         "chat_id": chat_id,
         "text": text,

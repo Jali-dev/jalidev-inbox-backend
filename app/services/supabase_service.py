@@ -22,6 +22,25 @@ def _get_client() -> Client:
     return _client
 
 
+def _telegram_runtime_bot_id() -> str | None:
+    token = (settings.TELEGRAM_BOT_TOKEN or '').strip()
+    if not token or ':' not in token:
+        return None
+    bot_id = token.split(':', 1)[0].strip()
+    return bot_id or None
+
+
+def _extract_telegram_bot_id(external_id: str | None) -> str | None:
+    if not external_id:
+        return None
+
+    parts = str(external_id).split(':')
+    if len(parts) >= 3 and parts[0] == 'tg' and parts[1]:
+        return parts[1]
+
+    return None
+
+
 # ─────────────────────────────────────────────
 # Contacts
 # ─────────────────────────────────────────────
@@ -144,6 +163,22 @@ async def resolve_workspace_id_for_conversation(conversation_id: str) -> str | N
     client = _get_client()
 
     if external_id:
+        if external_id.startswith("tg:"):
+            parts = external_id.split(":")
+            if len(parts) >= 3 and parts[1]:
+                workspace_channel_resp = (
+                    client.table("workspace_channels")
+                    .select("workspace_id")
+                    .eq("channel_type", "telegram")
+                    .eq("external_id", f"telegram:{parts[1]}")
+                    .limit(1)
+                    .execute()
+                )
+                if workspace_channel_resp.data:
+                    workspace_id = workspace_channel_resp.data[0].get("workspace_id")
+                    if workspace_id:
+                        return str(workspace_id)
+
         identity_resp = (
             client.table("client_channel_identities")
             .select("workspace_id")
@@ -172,6 +207,38 @@ async def resolve_workspace_id_for_conversation(conversation_id: str) -> str | N
     return None
 
 
+async def resolve_telegram_bot_token_for_conversation(conversation_id: str) -> str | None:
+    conv_data = await get_conversation_with_contact(conversation_id)
+    if not conv_data:
+        return None
+
+    contact = conv_data["contact"] or {}
+    external_id = contact.get("external_id")
+    bot_id = _extract_telegram_bot_id(external_id)
+    if not bot_id:
+        bot_id = _telegram_runtime_bot_id()
+
+    if not bot_id:
+        return None
+
+    client = _get_client()
+    resp = (
+        client.table("workspace_channels")
+        .select("config")
+        .eq("channel_type", "telegram")
+        .eq("external_id", f"telegram:{bot_id}")
+        .limit(1)
+        .execute()
+    )
+
+    if not resp.data:
+        return None
+
+    config = resp.data[0].get("config") or {}
+    token = config.get("bot_token") if isinstance(config, dict) else None
+    return str(token).strip() if token else None
+
+
 async def resolve_workspace_id_for_channel(channel: str) -> str | None:
     """
     Resolve the workspace that owns the active channel.
@@ -179,6 +246,25 @@ async def resolve_workspace_id_for_channel(channel: str) -> str | None:
     so the connected workspace_channel is the source of truth.
     """
     client = _get_client()
+
+    if channel == "telegram":
+        bot_id = _telegram_runtime_bot_id()
+        if bot_id:
+            resp = (
+                client.table("workspace_channels")
+                .select("workspace_id")
+                .eq("channel_type", "telegram")
+                .eq("external_id", f"telegram:{bot_id}")
+                .eq("status", "connected")
+                .limit(1)
+                .execute()
+            )
+
+            if resp.data:
+                workspace_id = resp.data[0].get("workspace_id")
+                if workspace_id:
+                    return str(workspace_id)
+
     resp = (
         client.table("workspace_channels")
         .select("workspace_id")
