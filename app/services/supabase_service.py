@@ -12,6 +12,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _client: Client | None = None
+DEFAULT_INBOX_AI_CREDIT_COST = 1
 
 
 def _get_client() -> Client:
@@ -125,6 +126,53 @@ async def get_conversation_with_contact(
     row = resp.data[0]
     contact = row.pop("contacts", None)
     return {"conversation": row, "contact": contact or {}}
+
+
+async def resolve_workspace_id_for_channel(channel: str) -> str | None:
+    """
+    Resolve the workspace that owns the active channel.
+    Current inbox-backend traffic is single-workspace per channel,
+    so the connected workspace_channel is the source of truth.
+    """
+    client = _get_client()
+    resp = (
+        client.table("workspace_channels")
+        .select("workspace_id")
+        .eq("channel_type", channel)
+        .eq("status", "connected")
+        .limit(1)
+        .execute()
+    )
+
+    if not resp.data:
+        return None
+
+    workspace_id = resp.data[0].get("workspace_id")
+    return str(workspace_id) if workspace_id else None
+
+
+async def consume_workspace_credits(workspace_id: str, cost: int = DEFAULT_INBOX_AI_CREDIT_COST) -> bool:
+    """
+    Deduct credits using the financial RPC.
+    Returns True when the deduction succeeds.
+    """
+    client = _get_client()
+    resp = client.rpc(
+        "check_and_consume_credit",
+        {"p_workspace_id": workspace_id, "p_cost": max(int(cost), 0)},
+    ).execute()
+    return bool(resp.data)
+
+
+async def increment_workspace_analytics(workspace_id: str, credits_used: int = DEFAULT_INBOX_AI_CREDIT_COST) -> None:
+    """
+    Best-effort analytics update for AI replies.
+    """
+    client = _get_client()
+    client.rpc(
+        "increment_analytics",
+        {"p_workspace_id": workspace_id, "p_credits_used": max(int(credits_used), 0)},
+    ).execute()
 
 
 # ─────────────────────────────────────────────
