@@ -34,6 +34,10 @@ class N8nReplyPayload(BaseModel):
     channel: str  # "telegram" | "whatsapp"
     credit_cost: int | None = None
     workspace_id: str | None = None
+    is_trivial: bool | None = None
+    requested_model: str | None = None
+    resolved_model: str | None = None
+    tokens_used: int | None = None
 
 
 # ─────────────────────────────────────────────
@@ -158,17 +162,19 @@ async def n8n_ai_reply(
         or await supabase_service.resolve_workspace_id_for_channel(channel)
     )
     credit_cost = max(payload.credit_cost or supabase_service.DEFAULT_INBOX_AI_CREDIT_COST, 0)
+    is_zero_cost = bool(payload.is_trivial) or credit_cost <= 0
 
     if not workspace_id:
         logger.error(f"[n8n-reply] Workspace not resolved for conversation {payload.conversation_id} channel={channel}")
         return {"ok": False, "error": "workspace_not_resolved"}
 
-    credits_consumed = await supabase_service.consume_workspace_credits(workspace_id, credit_cost)
-    if not credits_consumed:
-        logger.warning(
-            f"[n8n-reply] Insufficient credits for workspace {workspace_id} conversation {payload.conversation_id}"
-        )
-        return {"ok": False, "error": "insufficient_credits"}
+    if not is_zero_cost:
+        credits_consumed = await supabase_service.consume_workspace_credits(workspace_id, credit_cost)
+        if not credits_consumed:
+            logger.warning(
+                f"[n8n-reply] Insufficient credits for workspace {workspace_id} conversation {payload.conversation_id}"
+            )
+            return {"ok": False, "error": "insufficient_credits"}
 
     # 3. Save AI reply to Supabase
     await supabase_service.save_outbound_message(
@@ -189,9 +195,18 @@ async def n8n_ai_reply(
         logger.warning(f"[n8n-reply] Delivery failed for conversation {payload.conversation_id}")
         return {"ok": False, "error": "delivery_failed"}
 
-    try:
-        await supabase_service.increment_workspace_analytics(workspace_id, credit_cost)
-    except Exception as exc:
-        logger.warning(f"[n8n-reply] Analytics update failed for conversation {payload.conversation_id}: {exc}")
+    if not is_zero_cost:
+        try:
+            await supabase_service.increment_workspace_analytics(workspace_id, credit_cost)
+        except Exception as exc:
+            logger.warning(f"[n8n-reply] Analytics update failed for conversation {payload.conversation_id}: {exc}")
 
-    return {"ok": True}
+    return {
+        "ok": True,
+        "workspace_id": workspace_id,
+        "credit_cost": 0 if is_zero_cost else credit_cost,
+        "is_trivial": bool(payload.is_trivial),
+        "resolved_model": payload.resolved_model,
+        "requested_model": payload.requested_model,
+        "tokens_used": payload.tokens_used or 0,
+    }

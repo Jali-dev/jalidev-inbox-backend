@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services import supabase_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,29 @@ async def trigger_ai_workflow(
         "callback_url": callback_url,
         "callback_key": settings.N8N_CALLBACK_KEY,
     }
+
+    workspace_id = None
+    if extra:
+        workspace_id = extra.get("workspace_id")
+
+    if not workspace_id:
+        workspace_id = (
+            await supabase_service.resolve_workspace_id_for_conversation(conversation_id)
+            or await supabase_service.resolve_workspace_id_for_channel(channel)
+        )
+
+    if workspace_id:
+        payload["workspace_id"] = workspace_id
+        workspace_runtime = await supabase_service.get_workspace_ai_runtime(str(workspace_id))
+        if workspace_runtime:
+            payload.update({
+                "workspace_ai_model": workspace_runtime.get("ai_model"),
+                "workspace_plan_id": workspace_runtime.get("plan_id"),
+                "workspace_subscription_status": workspace_runtime.get("subscription_status"),
+                "workspace_system_prompt": workspace_runtime.get("system_prompt"),
+                "workspace_max_tokens": workspace_runtime.get("max_tokens"),
+                "workspace_temperature": workspace_runtime.get("temperature"),
+            })
 
     if extra:
         payload.update(extra)

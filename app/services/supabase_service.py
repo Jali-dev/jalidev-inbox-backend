@@ -195,6 +195,25 @@ async def resolve_workspace_id_for_channel(channel: str) -> str | None:
     return str(workspace_id) if workspace_id else None
 
 
+async def get_workspace_ai_runtime(workspace_id: str) -> dict[str, Any] | None:
+    """
+    Load the workspace AI runtime settings used by WF-06.
+    """
+    client = _get_client()
+    resp = (
+        client.table("workspaces")
+        .select("id, ai_model, plan_id, subscription_status, system_prompt, max_tokens, temperature")
+        .eq("id", workspace_id)
+        .limit(1)
+        .execute()
+    )
+
+    if not resp.data:
+        return None
+
+    return resp.data[0]
+
+
 async def consume_workspace_credits(workspace_id: str, cost: int = DEFAULT_INBOX_AI_CREDIT_COST) -> bool:
     """
     Deduct credits using the financial RPC.
